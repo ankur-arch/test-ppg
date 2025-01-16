@@ -1,5 +1,5 @@
--- Enable the pgcrypto extension (requires superuser privileges)
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- Enable the uuid-ossp extension (requires superuser privileges)
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Attempt to create a superuser role
 -- If this fails, it will stop execution and log an error in the database logs
