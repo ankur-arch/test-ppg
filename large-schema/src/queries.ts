@@ -1,110 +1,86 @@
-import { PrismaClient } from '@prisma/client';
-import { withAccelerate } from '@prisma/extension-accelerate';
+import fs from 'fs';
+import path from 'path';
+import { execSync } from 'child_process';
 
-const prisma = new PrismaClient()
-  .$extends(withAccelerate());
+const schemaFilePath: string = path.join(__dirname, '..', 'prisma', 'schema.prisma');
+const logFilePath: string = path.join(__dirname, 'migration_logs.txt');
 
-// A `main` function so that we can use async/await
-async function main() {
-
-  const user1Email = `alice${Date.now()}@prisma.io`;
-  const user2Email = `bob${Date.now()}@prisma.io`;
-
-  // Seed the database with users and posts
-  const user1 = await prisma.user.create({
-    data: {
-      email: user1Email,
-      name: 'Alice',
-      posts: {
-        create: {
-          title: 'Join the Prisma community on Discord',
-          content: 'https://pris.ly/discord',
-          published: true,
-        },
-      },
-    },
-    include: {
-      posts: true,
-    },
-  });
-  const user2 = await prisma.user.create({
-    data: {
-      email: user2Email,
-      name: 'Bob',
-      posts: {
-        create: [
-          {
-            title: 'Check out Prisma on YouTube',
-            content: 'https://pris.ly/youtube',
-            published: true,
-          },
-          {
-            title: 'Follow Prisma on Twitter',
-            content: 'https://twitter.com/prisma/',
-            published: false,
-          },
-        ],
-      },
-    },
-    include: {
-      posts: true,
-    },
-  });
-  console.log(
-    `Created users: ${user1.name} (${user1.posts.length} post) and ${user2.name} (${user2.posts.length} posts) `,
-  );
-
-  // Retrieve all published posts
-  const allPosts = await prisma.post.findMany({
-    where: { published: true },
-  });
-  console.log(`Retrieved all published posts: ${JSON.stringify(allPosts)}`);
-
-  // Create a new post (written by an already existing user with email alice@prisma.io)
-  const newPost = await prisma.post.create({
-    data: {
-      title: 'Join the Prisma Discord community',
-      content: 'https://pris.ly/discord',
-      published: false,
-      author: {
-        connect: {
-          email: user1Email,
-        },
-      },
-    },
-  });
-  console.log(`Created a new post: ${JSON.stringify(newPost)}`);
-
-  // Publish the new post
-  const updatedPost = await prisma.post.update({
-    where: {
-      id: newPost.id,
-    },
-    data: {
-      published: true,
-    },
-  });
-  console.log(`Published the newly created post: ${JSON.stringify(updatedPost)}`);
-
-  // Retrieve all posts by user with email alice@prisma.io
-  const postsByUser = await prisma.post
-    .findMany({
-      where: {
-        author: {
-          email: user1Email
-        }
-      },
-    });
-  console.log(`Retrieved all posts from a specific user: ${JSON.stringify(postsByUser)}`);
-
+const generateSchema = (modelCount: number): string => {
+  let schema = `generator client {
+  provider = "prisma-client-js"
 }
 
-main()
-  .then(async () => {
-    await prisma.$disconnect();
-  })
-  .catch(async (e) => {
-    console.error(e);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+`;
+
+  for (let i = 1; i <= modelCount; i++) {
+    const nextModel = i < modelCount ? `Model${i + 1}` : '';
+    const relatedField = i > 1 ? `  relatedToModel${i - 1}   Model${i - 1}?  @relation(fields: [relatedToModel${i - 1}Id], references: [id])\n  relatedToModel${i - 1}Id Int?\n` : '';
+
+    schema += `model Model${i} {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  field1    String
+  field2    String
+  field3    String
+  field4    String
+  field5    String
+  field6    String
+  field7    String
+  field8    String
+  field9    String
+  field10   String
+
+${relatedField}${nextModel ? `  ${nextModel} ${nextModel}[]` : ''}
+}
+
+`;
+  }
+
+  return schema;
+};
+
+const writeSchemaFile = (schema: string): void => {
+  fs.writeFileSync(schemaFilePath, schema);
+  console.log(`schema.prisma file has been generated with updated models.`);
+};
+
+const logError = (modelCount: number, error: string): void => {
+  const logMessage = `Failed at ${modelCount} models:\n${error}\n`;
+  fs.appendFileSync(logFilePath, logMessage);
+  console.error(logMessage);
+};
+
+const runMigration = (): void => {
+  try {
+    execSync('prisma migrate reset --force')
+    execSync('npx prisma migrate dev -n init', { stdio: 'inherit' });
+  } catch (error) {
+    throw new Error(JSON.stringify(error));
+  }
+};
+
+const main = async (): Promise<void> => {
+  fs.writeFileSync(logFilePath, ''); // Clear previous logs
+
+  for (let modelCount = 100; modelCount <= 1000; modelCount += 100) {
+    try {
+      const schema = generateSchema(modelCount);
+      writeSchemaFile(schema);
+      console.log(`Running migration for ${modelCount} models...`);
+      runMigration();
+      console.log(`Migration successful for ${modelCount} models.`);
+    } catch (error) {
+      logError(modelCount, JSON.stringify(error));
+      break;
+    }
+  }
+};
+
+main().catch((err) => console.error(`Script failed: ${err.message}`));

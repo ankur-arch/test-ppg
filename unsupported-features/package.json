@@ -2,9 +2,7 @@
   "name": "hello-prisma",
   "license": "MIT",
   "scripts": {
-    "queries": "ts-node ./src/queries.ts",
-    "caching": "ts-node ./src/caching.ts",
-    "realtime": "ts-node ./src/realtime.ts"
+    "queries": "ts-node ./src/index.ts"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",

@@ -1,110 +1,72 @@
-import { PrismaClient } from '@prisma/client';
-import { withAccelerate } from '@prisma/extension-accelerate';
+import fs from 'fs';
+import path from 'path';
+import { execSync } from 'child_process';
 
-const prisma = new PrismaClient()
-  .$extends(withAccelerate());
+const migrationFilePath: string = path.join(__dirname, 'prisma', 'migrations');
+const logFilePath: string = path.join(__dirname, 'migration_logs.txt');
 
-// A `main` function so that we can use async/await
-async function main() {
+const ensureDirectoryExists = (filePath: string): void => {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`Created directory: ${dir}`);
+  }
+};
 
-  const user1Email = `alice${Date.now()}@prisma.io`;
-  const user2Email = `bob${Date.now()}@prisma.io`;
+const generateMigrationSQL = (migrationName: string): string => {
+  return `-- DropIndex
+DROP INDEX IF EXISTS "User_email_key";
 
-  // Seed the database with users and posts
-  const user1 = await prisma.user.create({
-    data: {
-      email: user1Email,
-      name: 'Alice',
-      posts: {
-        create: {
-          title: 'Join the Prisma community on Discord',
-          content: 'https://pris.ly/discord',
-          published: true,
-        },
-      },
-    },
-    include: {
-      posts: true,
-    },
-  });
-  const user2 = await prisma.user.create({
-    data: {
-      email: user2Email,
-      name: 'Bob',
-      posts: {
-        create: [
-          {
-            title: 'Check out Prisma on YouTube',
-            content: 'https://pris.ly/youtube',
-            published: true,
-          },
-          {
-            title: 'Follow Prisma on Twitter',
-            content: 'https://twitter.com/prisma/',
-            published: false,
-          },
-        ],
-      },
-    },
-    include: {
-      posts: true,
-    },
-  });
-  console.log(
-    `Created users: ${user1.name} (${user1.posts.length} post) and ${user2.name} (${user2.posts.length} posts) `,
-  );
+-- AlterTable
+ALTER TABLE "User" 
+DROP COLUMN IF EXISTS "email",
+ADD COLUMN "userEmail" TEXT NOT NULL;
 
-  // Retrieve all published posts
-  const allPosts = await prisma.post.findMany({
-    where: { published: true },
-  });
-  console.log(`Retrieved all published posts: ${JSON.stringify(allPosts)}`);
+-- CreateIndex
+CREATE UNIQUE INDEX "User_userEmail_key" ON "User"("userEmail");
 
-  // Create a new post (written by an already existing user with email alice@prisma.io)
-  const newPost = await prisma.post.create({
-    data: {
-      title: 'Join the Prisma Discord community',
-      content: 'https://pris.ly/discord',
-      published: false,
-      author: {
-        connect: {
-          email: user1Email,
-        },
-      },
-    },
-  });
-  console.log(`Created a new post: ${JSON.stringify(newPost)}`);
+-- Enable Row Level Security
+ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
 
-  // Publish the new post
-  const updatedPost = await prisma.post.update({
-    where: {
-      id: newPost.id,
-    },
-    data: {
-      published: true,
-    },
-  });
-  console.log(`Published the newly created post: ${JSON.stringify(updatedPost)}`);
+-- Create RLS Policy for Users to Access Only Their Rows
+CREATE POLICY "user_access_policy" ON "User"
+USING ("userEmail" = current_user);`;
+};
 
-  // Retrieve all posts by user with email alice@prisma.io
-  const postsByUser = await prisma.post
-    .findMany({
-      where: {
-        author: {
-          email: user1Email
-        }
-      },
-    });
-  console.log(`Retrieved all posts from a specific user: ${JSON.stringify(postsByUser)}`);
+const writeMigrationFile = (migrationName: string, sql: string): void => {
+  const migrationDir = path.join(migrationFilePath, migrationName);
+  ensureDirectoryExists(migrationDir);
 
-}
+  const sqlFilePath = path.join(migrationDir, 'migration.sql');
+  fs.writeFileSync(sqlFilePath, sql);
+  console.log(`Migration file created at: ${sqlFilePath}`);
+};
 
-main()
-  .then(async () => {
-    await prisma.$disconnect();
-  })
-  .catch(async (e) => {
-    console.error(e);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+const createMigration = (): void => {
+  try {
+    execSync('npx prisma migrate dev --create-only', { stdio: 'inherit' });
+    console.log('Migration file created successfully.');
+  } catch (error) {
+    throw new Error(JSON.stringify(error));
+  }
+};
+
+const logError = (migrationName: string, error: string): void => {
+  const logMessage = `Failed migration: ${migrationName}\n${error}\n`;
+  fs.appendFileSync(logFilePath, logMessage);
+  console.error(logMessage);
+};
+
+const main = async (): Promise<void> => {
+  const migrationName = 'add_user_email_and_rls_policy';
+  const migrationSQL = generateMigrationSQL(migrationName);
+
+  try {
+    writeMigrationFile(migrationName, migrationSQL);
+    createMigration();
+  } catch (error) {
+    logError(migrationName, JSON.stringify(error));
+  }
+};
+
+main().catch((err) => console.error(`Script failed: ${err.message}`));

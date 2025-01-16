@@ -9,7 +9,7 @@ datasource db {
 
 model User {
   id      Int      @id @default(autoincrement())
-  email   String   @unique
+  userEmail   String   @unique
   name    String?
   posts   Post[]
 }
@@ -21,4 +21,10 @@ model Post {
   published Boolean @default(false)
   author    User?   @relation(fields: [authorId], references: [id])
   authorId  Int?
+}
+
+model Book {
+  id        Int     @id @default(autoincrement())
+  title     String
+  content   String?
 }
